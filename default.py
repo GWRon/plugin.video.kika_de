@@ -24,7 +24,7 @@ useThumbAsFanart = addon.getSetting("useThumbAsFanart") == "true"
 viewMode = str(addon.getSetting("viewMode"))
 translation = addon.getLocalizedString
 icon = xbmc.translatePath('special://home/addons/'+addonID+'/icon.png')
-urlMain = "http://kikaplus.net"
+urlMain = "http://kika.de"
 opener = urllib2.build_opener()
 opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; rv:25.0) Gecko/20100101 Firefox/25.0')]
 
@@ -34,8 +34,6 @@ def index():
         kikaninchen()
     else:
         addDir(translation(30001), "", 'kikaninchen', icon)
-        addDir(translation(30002), urlMain+"/clients/kika/kikaplus/index.php?ag=3", 'listVideos', icon)
-        addDir(translation(30003), urlMain+"/clients/kika/kikaplus/index.php?ag=4", 'listVideos', icon)
         addDir(translation(30004), "", 'listShowsAZ', icon)
         addLink(translation(30005), "", 'playLive', icon)
         xbmcplugin.endOfDirectory(pluginhandle)
@@ -76,7 +74,7 @@ def listVideosKN(url, audioUrl):
         xbmc.Player().play(audioUrl)
     if url.endswith("index.html"):
         content = opener.open(url).read()
-        match = re.compile('"page", "(.+?)"', re.DOTALL).findall(content)
+        match = re.compile('flashvars.page = "(.+?)"', re.DOTALL).findall(content)
         url = match[0]
     content = opener.open(url).read()
     spl = content.split('<movie>')
@@ -85,8 +83,15 @@ def listVideosKN(url, audioUrl):
         match = re.compile('<title>(.+?)</title>', re.DOTALL).findall(entry)
         title = match[0]
         title = cleanTitle(title)
-        match = re.compile('<mediaType>F4V</mediaType>.+?<flashMediaServerURL>(.+?)<', re.DOTALL).findall(entry)
-        url = match[0]
+        match = re.compile('<mediaType>.+?</mediaType>.+?<flashMediaServerURL>(.+?)<', re.DOTALL).findall(entry)
+        url = match[0].split(":") #url was mp4:mp4dyn/1/FCMS-[HASH].mp4
+        if len(url) > 1:
+            url = url[1]
+        else:
+            url = url[0]
+        match = re.compile('<flashMediaServerApplicationURL>(.+?)<', re.DOTALL).findall(entry)
+        url = match[0] + url
+
         match = re.compile('<image>(.+?)</image>', re.DOTALL).findall(entry)
         thumb = match[0]
         #GetImageHash - unable to stat url
@@ -97,41 +102,159 @@ def listVideosKN(url, audioUrl):
         xbmc.executebuiltin('Container.SetViewMode('+viewMode+')')
 
 
-def listVideos(url):
+#list all shows available at kika.de
+#the link of the show leads to an overview page, so we
+#need to parse another file to get the "all episodes"-page
+def listShows(url):
+    xbmcplugin.addSortMethod(pluginhandle, xbmcplugin.SORT_METHOD_LABEL)
     content = opener.open(url).read()
-    spl = content.split('<a style="position:relative')
+	#each entry starts with the following code snipped
+    spl = content.split('class="teaser teaserStandard')
     for i in range(1, len(spl), 1):
         entry = spl[i]
-        match = re.compile('title="(.+?)<br /><br />', re.DOTALL).findall(entry)
-        title = match[0].replace("<label>","").replace("</label>","").replace("<br />",": ")
-        title = cleanTitle(title)
-        match = re.compile('href="(.+?)"', re.DOTALL).findall(entry)
-        url = urlMain+"/clients/kika/kikaplus/index.php"+match[0]
-        match = re.compile('src="(.+?)"', re.DOTALL).findall(entry)
-        thumb = urlMain+"/clients/kika"+match[0][2:].replace("/previewpic/","/previewpic_orig/")
+        match = re.compile('<noscript>.+?<img.*?src="(.*?)".+?>', re.DOTALL).findall(entry)
+        thumb = urlMain + match[0]
+        match = re.compile('<h4 class="headline">.+?<a href="(.+?)"', re.DOTALL).findall(entry)
+        url = urlMain + match[0]
+        match = re.compile('<a href="(.+?)" class="linkAll" title="(.+?)"></a>', re.DOTALL).findall(entry)
+        title = cleanTitle(match[0][1])
+        addDir(title, url, 'listShowInfo', thumb)
+    xbmcplugin.endOfDirectory(pluginhandle)
+    if forceViewMode:
+        xbmc.executebuiltin('Container.SetViewMode('+viewMode+')')
+
+      
+
+#read link for "all episodes"-page (ID differs to series ID)
+def listShowInfo(url):
+    content = opener.open(url).read()
+    available = True
+    if content.find('<p class="mainInfo">zurzeit nicht bei KiKA,</p>') > 0:
+        #currently not available
+        available = False
+
+    match = re.compile('<h1 class="siteHeadline hidden">(.+?)</h1>', re.DOTALL).findall(content)
+    title = cleanTitle(match[0])
+
+    content = content[content.find('class="secondInfo"'):]
+    content = content[:content.find('wrapper wrapperIdent')]
+
+    match = re.compile('<a href="/([^"]*)buendelgruppe(.+?).html" title="">', re.DOTALL).findall(content)
+    url = urlMain + "/" + match[0][0] + "buendelgruppe" + match[0][1] + ".html"
+
+    match = re.compile('<noscript>.+?<img.*?src="(.*?)".+?>', re.DOTALL).findall(content)
+    thumb = urlMain + match[0]
+
+    if available:
+        addDir(title, url, 'listEpisodes', thumb)
+    else:
+        addDir(title+" (Videos derzeit nicht verfügbar)", url, 'listEpisodes', thumb)
+	
+    xbmcplugin.endOfDirectory(pluginhandle)
+    if forceViewMode:
+        xbmc.executebuiltin('Container.SetViewMode('+viewMode+')')
+
+
+
+#lists all episodes of a single show (plus pagination)
+def listEpisodes(url):
+    content = opener.open(url).read()
+	#each entry starts with the following code snipped
+    spl = content.split('class="teaser teaserStandard')
+    for i in range(1, len(spl), 1):
+        entry = spl[i]
+        match = re.compile('<noscript>.+?<img.*?src="(.*?)".+?>', re.DOTALL).findall(entry)
+        thumb = urlMain + match[0]
+
+        match = re.compile('<h4 class="headline">.+?<a href="(.+?)"', re.DOTALL).findall(entry)
+        #now the url links to the "alle folgen" are
+        url = match[0].replace("sendereihe", "buendelgruppe")
+        url = urlMain + url
+
+        match = re.compile('<a href="(.+?)" class="linkAll" title="(.+?)"></a>', re.DOTALL).findall(entry)
+        title = cleanTitle(match[0][1])
+
+        addDir(title, url, 'listEpisodeFormats', thumb)
+    xbmcplugin.endOfDirectory(pluginhandle)
+    if forceViewMode:
+        xbmc.executebuiltin('Container.SetViewMode('+viewMode+')')
+
+
+
+
+#lists a single episode and available options (-> "play")
+def listEpisodeFormats(url):
+    xbmc.log("listing episode formats: "+url)
+
+    #load html site to get xml-data-url
+    content = opener.open(url).read()
+
+    match = re.compile('dataURL:\'([^\']*)\'', re.DOTALL).findall(content)
+    xmlUrl = urlMain + match[0]
+    xbmc.log("xmlURL = " + xmlUrl)
+
+	#load final xml content (containing video urls)
+    content = opener.open(xmlUrl).read()
+
+    #contains a thumbnail-template, but "hash"-key is missing
+	#match = re.compile('<url>(.+?)</url>', re.DOTALL).findall(entry)
+	#thumb = match[0]
+	#thumb = thumb.replace("_v-", "-resimage_v-")
+	#thumb = thumb.replace("**aspectRatio**", "tlarge169")
+	#thumb = thumb.replace("**width**", "600")
+    thumb = ""
+
+
+    spl = content.split('<asset>')
+    for i in range(1, len(spl), 1):
+        url = ""
+        entry = spl[i]
+        match = re.compile('<profileName>(.+?)</profileName>', re.DOTALL).findall(entry)
+        title = cleanTitle(match[0])
+        xbmc.log("title: "+title)
+
+        matches = re.compile('<flashMediaServerURL>(.+?)</flash', re.DOTALL).findall(entry)
+        for match in matches:
+            url = match.split(":") #url was mp4:mp4dyn/1/FCMS-[HASH].mp4
+            if len(url) > 1:
+                url = url[1]
+            else:
+                url = url[0]
+            appMatch = re.compile('<flashMediaServerApplicationURL>(.+?)<', re.DOTALL).findall(entry)
+            url = appMatch[0] + url
+
+        if url == "":
+            match = re.compile('<progressiveDownloadUrl>(.+?)<', re.DOTALL).findall(entry)
+            url = match[0]
+
+        xbmc.log("url: "+url)
         addLink(title, url, 'playVideo', thumb)
     xbmcplugin.endOfDirectory(pluginhandle)
     if forceViewMode:
         xbmc.executebuiltin('Container.SetViewMode('+viewMode+')')
 
 
+
 def listShowsAZ():
     xbmcplugin.addSortMethod(pluginhandle, xbmcplugin.SORT_METHOD_LABEL)
-    content = opener.open(urlMain+"/clients/kika/kikaplus/index.php?startpage=true").read()
-    content = content[content.find('<div id="a_z_overlay_text">'):]
-    content = content[:content.find('</div>')]
-    match = re.compile('<a href="(.+?)" title="(.+?)" class="overlay_link".*?>(.+?)</a>', re.DOTALL).findall(content)
-    for url, vids, title in match:
+    content = opener.open(urlMain+"/sendungen/sendungenabisz100.html").read()
+	#begin
+    content = content[content.find('class="bundleNaviWrapper"'):]
+    #end
+    content = content[:content.find('class="modCon"')]
+    match = re.compile('<a href="(.+?)" class="pageItem".*?>(.+?)</a>', re.DOTALL).findall(content)
+    for url, title in match:
         if "/kikaninchen/" in url:
-            addDir(title, url, 'listVideosKN', icon)
+            addDir(title, url, 'listShowsKN', icon)
         else:
-            addDir(title, urlMain+"/clients/kika/kikaplus/index.php"+url, 'listVideos', icon)
+            addDir(title, urlMain+url, 'listShows', icon)
     xbmcplugin.endOfDirectory(pluginhandle)
     if forceViewMode:
         xbmc.executebuiltin('Container.SetViewMode('+viewMode+')')
 
 
 def playVideo(url):
+    xbmc.log("URL: "+url)
     if url.startswith("http://"):
         content = opener.open(url).read()
         match1 = re.compile('"fullscreenPfad", "(.+?)"', re.DOTALL).findall(content)
@@ -140,7 +263,7 @@ def playVideo(url):
             url = match1[0]
         elif match2:
             url = match2[0]
-    else:
+    elif not url.startswith("rtmp://"):
         content = opener.open(urlMain+"/clients/kika/common/public/config/server.xml").read()
         servers = []
         spl = content.split('<server>')
@@ -156,9 +279,10 @@ def playVideo(url):
 
 
 def playLive():
-    content = opener.open(urlMain+"/clients/kika/player/tvplayer.php").read()
-    match = re.compile("loadPlayer\\('(.+?)','(.+?)'", re.DOTALL).findall(content)
-    listitem = xbmcgui.ListItem(path=match[0][0]+"/"+match[0][1])
+    content = opener.open(urlMain+"/clients/kika/player/tvplayer.php?cmd=status").read()
+    matchServer = re.compile('"server":"(.+?)"', re.DOTALL).findall(content)
+    matchStream = re.compile('"stream":"(.+?)"', re.DOTALL).findall(content)
+    listitem = xbmcgui.ListItem(path=matchServer[0].replace("\\","")+"/"+matchStream[0].replace("\\",""))
     xbmcplugin.setResolvedUrl(pluginhandle, True, listitem)
 
 
@@ -220,10 +344,16 @@ if mode == 'kikaninchen':
     kikaninchen()
 elif mode == 'listShowsAZ':
     listShowsAZ()
-elif mode == 'listVideosKN':
-    listVideosKN(url, audioUrl)
-elif mode == 'listVideos':
-    listVideos(url)
+elif mode == 'listShowsKN':
+    listShowsKN(url, audioUrl)
+elif mode == 'listShows':
+    listShows(url)
+elif mode == 'listShowInfo':
+    listShowInfo(url)
+elif mode == 'listEpisodes':
+    listEpisodes(url)
+elif mode == 'listEpisodeFormats':
+    listEpisodeFormats(url)
 elif mode == 'playVideo':
     playVideo(url)
 elif mode == 'queueVideo':
