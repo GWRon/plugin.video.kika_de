@@ -63,13 +63,13 @@ def kikaninchen():
         #GetImageHash - unable to stat url
         #thumb = thumb[:thumb.find('_h')]+"_v-galleryImage_-fc0f89b63e73c7b2a5ecbe26bac10a07631d8c2f.jpg"
         if not "auswahlkikaninchenfilme" in url and not "kikaninchentrailer" in url:
-            addDir(title, url, 'listVideosKN', thumb, desc, audioUrl)
+            addDir(title, url, 'listShowsKN', thumb, desc, audioUrl)
     xbmcplugin.endOfDirectory(pluginhandle)
     if forceViewMode:
         xbmc.executebuiltin('Container.SetViewMode('+viewMode+')')
 
 
-def listVideosKN(url, audioUrl):
+def listShowsKN(url, audioUrl):
     if playSound and audioUrl and not xbmc.Player().isPlaying():
         xbmc.Player().play(audioUrl)
     if url.endswith("index.html"):
@@ -129,9 +129,9 @@ def listShows(url):
 def listShowInfo(url):
     content = opener.open(url).read()
     available = True
-    if content.find('<p class="mainInfo">zurzeit nicht bei KiKA,</p>') > 0:
+    #if content.find('<p class="mainInfo">zurzeit nicht bei KiKA,</p>') > 0:
         #currently not available
-        available = False
+    #    available = False
 
     match = re.compile('<h1 class="siteHeadline hidden">(.+?)</h1>', re.DOTALL).findall(content)
     title = cleanTitle(match[0])
@@ -184,51 +184,56 @@ def listEpisodes(url):
 
 #lists a single episode and available options (-> "play")
 def listEpisodeFormats(url):
-    xbmc.log("listing episode formats: "+url)
+    #xbmc.log("listing episode formats: "+url)
 
     #load html site to get xml-data-url
     content = opener.open(url).read()
 
     match = re.compile('dataURL:\'([^\']*)\'', re.DOTALL).findall(content)
-    xmlUrl = urlMain + match[0]
-    xbmc.log("xmlURL = " + xmlUrl)
+    xmlUrl = ""
+    if match:
+        xmlUrl = urlMain + match[0]
 
-	#load final xml content (containing video urls)
-    content = opener.open(xmlUrl).read()
+    if not xmlUrl == "":
+        xbmc.log("listing episode formats from xml: "+xmlUrl)
+        #load final xml content (containing video urls)
+        content = opener.open(xmlUrl).read()
 
-    #contains a thumbnail-template, but "hash"-key is missing
-	#match = re.compile('<url>(.+?)</url>', re.DOTALL).findall(entry)
-	#thumb = match[0]
-	#thumb = thumb.replace("_v-", "-resimage_v-")
-	#thumb = thumb.replace("**aspectRatio**", "tlarge169")
-	#thumb = thumb.replace("**width**", "600")
-    thumb = ""
+        #contains a thumbnail-template, but "hash"-key is missing
+        #match = re.compile('<url>(.+?)</url>', re.DOTALL).findall(entry)
+        #thumb = match[0]
+        #thumb = thumb.replace("_v-", "-resimage_v-")
+        #thumb = thumb.replace("**aspectRatio**", "tlarge169")
+        #thumb = thumb.replace("**width**", "600")
+        thumb = ""
 
 
-    spl = content.split('<asset>')
-    for i in range(1, len(spl), 1):
-        url = ""
-        entry = spl[i]
-        match = re.compile('<profileName>(.+?)</profileName>', re.DOTALL).findall(entry)
-        title = cleanTitle(match[0])
-        xbmc.log("title: "+title)
+        spl = content.split('<asset>')
+        for i in range(1, len(spl), 1):
+            url = ""
+            entry = spl[i]
+            match = re.compile('<profileName>(.+?)</profileName>', re.DOTALL).findall(entry)
+            title = cleanTitle(match[0])
+            xbmc.log("title: "+title)
 
-        matches = re.compile('<flashMediaServerURL>(.+?)</flash', re.DOTALL).findall(entry)
-        for match in matches:
-            url = match.split(":") #url was mp4:mp4dyn/1/FCMS-[HASH].mp4
-            if len(url) > 1:
-                url = url[1]
-            else:
-                url = url[0]
-            appMatch = re.compile('<flashMediaServerApplicationURL>(.+?)<', re.DOTALL).findall(entry)
-            url = appMatch[0] + url
+            matches = re.compile('<flashMediaServerURL>(.+?)</flash', re.DOTALL).findall(entry)
+            for match in matches:
+                url = match.split(":") #url was mp4:mp4dyn/1/FCMS-[HASH].mp4
+                if len(url) > 1:
+                    url = url[1]
+                else:
+                    url = url[0]
+                appMatch = re.compile('<flashMediaServerApplicationURL>(.+?)<', re.DOTALL).findall(entry)
+                url = appMatch[0] + "/" + url
 
-        if url == "":
-            match = re.compile('<progressiveDownloadUrl>(.+?)<', re.DOTALL).findall(entry)
-            url = match[0]
+            if url == "":
+                match = re.compile('<progressiveDownloadUrl>(.+?)<', re.DOTALL).findall(entry)
+                url = match[0]
 
-        xbmc.log("url: "+url)
-        addLink(title, url, 'playVideo', thumb)
+            xbmc.log("url: "+url)
+            addLink(title, url, 'playVideo', thumb)
+    else:
+        addLink("Kein abspielbares Video gefunden", "", 'playVideo', "")
     xbmcplugin.endOfDirectory(pluginhandle)
     if forceViewMode:
         xbmc.executebuiltin('Container.SetViewMode('+viewMode+')')
