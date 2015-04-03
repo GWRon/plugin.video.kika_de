@@ -284,12 +284,21 @@ def playVideo(url):
 
 
 def playLive():
-    content = opener.open(urlMain+"/clients/kika/player/tvplayer.php?cmd=status").read()
-    matchServer = re.compile('"server":"(.+?)"', re.DOTALL).findall(content)
-    matchStream = re.compile('"stream":"(.+?)"', re.DOTALL).findall(content)
-    listitem = xbmcgui.ListItem(path=matchServer[0].replace("\\","")+"/"+matchStream[0].replace("\\",""))
-    xbmcplugin.setResolvedUrl(pluginhandle, True, listitem)
+    content = opener.open(urlMain+"/resources/player/xml/kika/livestream.xml").read()
+    #skip to the "de"-content
+    content = content[content.find('<geoZone>DE</geoZone>'):]
 
+    matchDynamic = re.compile('<dynamicHttpStreamingRedirectorUrl>(.+?)</', re.DOTALL).findall(content)
+    matchAdaptive = re.compile('<adaptiveHttpStreamingRedirectorUrl>(.+?)</', re.DOTALL).findall(content)
+    if matchAdaptive:
+        listitem = xbmcgui.ListItem(path=matchAdaptive[0].strip())
+        xbmcplugin.setResolvedUrl(pluginhandle, True, listitem)
+    #is this even playable (f4m) ?
+#   elif matchDynamic:
+#       listitem = xbmcgui.ListItem( matchDynamic[0].Strip() )
+#       xbmcplugin.setResolvedUrl(pluginhandle, True, listitem)
+    else:
+        xbmc.executebuiltin("XBMC.Notification(%s, %s, 3500, %s)" % ("Sorry Kids", "Keinen Live-Stream gefunden", addon.getAddonInfo('icon')))
 
 def queueVideo(url, name, thumb):
     playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
